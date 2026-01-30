@@ -1,0 +1,4 @@
+WHITE LABEL VERSION
+Rename app by editing <title> in index.html.
+Replace logo text in header.
+Host on your own domain for clubs/schools.
