@@ -2061,7 +2061,7 @@ function computeReporting(){
 
 function initSplash(){
   showSplash();
-  window.setTimeout(hideSplash, 1500);
+  window.setTimeout(hideSplash, 500);
 }
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", initSplash);
@@ -2385,13 +2385,14 @@ function activateLicense(){
   }
 }
 /* Init */
+// Splash always shows briefly
 showSplash();
-setTimeout(hideSplash, 1500);
-if(trialExpired()){ setTimeout(()=>{ showPaywall(); }, 1500); return; }
-showSplash();
-setTimeout(hideSplash, 1500);
+setTimeout(hideSplash, 500);
 
-
+// Trial gate: if expired, show paywall AFTER splash hides
+if(trialExpired()){
+  setTimeout(()=>{ showPaywall(); }, 520);
+} else {
 loadCurrent();
 updatePositionOptions();
 populateExerciseList();
@@ -2399,6 +2400,8 @@ renderLiftTable();
 renderRoster();
 render();
 drawWeeklyTonnage();
+}
+
 drawMetricChart();
 </script>
 </body>
