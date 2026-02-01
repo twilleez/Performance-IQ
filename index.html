@@ -3562,11 +3562,6 @@ $("btnInstall").addEventListener("click", async ()=>{ if(!deferredPrompt) return
 
 if("serviceWorker" in navigator){ navigator.serviceWorker.register("./service-worker.js").catch(()=>{}); }
 
-// v45.1 init friction tools
-try{ initParentView(); }catch(e){}
-try{ bindDemoAndPresets(); }catch(e){}
-
-
 
 
 function validateCoreInputs(){
@@ -4335,28 +4330,90 @@ function activateLicense(){
     alert("Invalid license key");
   }
 }
-/* Init */
-// Splash always shows briefly
-showSplash();
-setTimeout(hideSplash, 2000);
 
-// Trial gate: if expired, show paywall AFTER splash hides
-if(trialExpired()){
-  setTimeout(()=>{ showPaywall(); }, 2050);
-} else {
-loadCurrent();
-updatePositionOptions();
-populateExerciseList();
-renderLiftTable();
-renderRoster();
-render();
-drawWeeklyTonnage();
+/* === Boot system v46 (GitHub-safe) === */
+function showFatalError(err){
+  console.error(err);
+  const root = document.body;
+  if(!root) return;
+  const msg = (err && err.message) ? err.message : String(err||"Unknown error");
+  root.innerHTML = `
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;font-family:Roboto,Arial">
+    <div style="max-width:680px">
+      <h1 style="margin:0 0 10px 0">PerformanceIQ could not load</h1>
+      <p style="margin:0 0 10px 0;opacity:.8">A required part of the page failed to initialize.</p>
+      <div style="padding:12px;border:1px solid #ccc;border-radius:12px;white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace">${_pdfEsc(msg)}</div>
+      <p style="margin:14px 0 0 0;opacity:.75">Tip: refresh the page. If it continues, the build may be corrupted.</p>
+    </div>
+  </div>`;
 }
 
-drawMetricChart();
-</script>
-</body>
-</html>
+function validateDOMRequired(){
+  const required = [
+    "navAthletes","navProgram","navProgress",
+    "tab-athletes","tab-program","tab-progress"
+  ];
+  required.forEach(id=>{
+    if(!document.getElementById(id)) throw new Error("Missing required element: "+id);
+  });
+}
+
+function safe(name, fn){
+  try{ fn(); }
+  catch(e){ console.warn("[Feature failed]", name, e); }
+}
+
+function initApp(){
+  try{
+    validateDOMRequired();
+
+    // Global error shield
+    window.addEventListener("error", (e)=>{
+      console.warn("Runtime error:", e?.message || e);
+    });
+    window.addEventListener("unhandledrejection", (e)=>{
+      console.warn("Unhandled promise rejection:", e?.reason || e);
+    });
+
+    // Splash: never blocks app boot
+    safe("Splash", ()=>{ showSplash(); setTimeout(hideSplash, 2000); });
+
+    // Core boot (must not throw)
+    safe("Load current", loadCurrent);
+    safe("Position options", updatePositionOptions);
+    safe("Exercise list", populateExerciseList);
+    safe("Lift table", renderLiftTable);
+    safe("Roster render", renderRoster);
+    safe("Tab keyboard nav", initTabKeyboardNav);
+    safe("ARIA labels", ensureAriaLabels);
+
+    // Optional features
+    safe("Info tooltips", bindInfo);
+    safe("Share buttons", bindShareButtons);
+    safe("Parent view", initParentView);
+    safe("Demo & presets", bindDemoAndPresets);
+
+    // Render last
+    safe("Render", ()=>{ render(); drawWeeklyTonnage(); drawMetricChart(); updateWeeklySummaryUI?.(); updateTeamOverviewUI?.(); });
+
+    // Trial gate: show paywall after splash hides (does not prevent boot)
+    safe("Trial gate", ()=>{
+      if(trialExpired()){
+        setTimeout(()=>{ try{ showPaywall(); }catch(e){} }, 2100);
+      }
+    });
+
+  }catch(err){
+    showFatalError(err);
+  }
+}
+
+if(document.readyState === "loading"){
+  document.addEventListener("DOMContentLoaded", initApp);
+} else {
+  initApp();
+}
+
 function initTabKeyboardNav(){
   const tabs = Array.from(document.querySelectorAll('.tabs [data-tab]'));
   if(!tabs.length) return;
@@ -4384,3 +4441,7 @@ function ensureAriaLabels(){
 }
 
 
+
+</script>
+</body>
+</html>
