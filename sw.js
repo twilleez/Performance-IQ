@@ -1,6 +1,6 @@
 
 // PerformanceIQ service worker (v31)
-const CACHE_NAME = 'performanceiq-cache-v31';
+const CACHE_NAME = "piq-cache-sw-v47-20260201-71d56cb74b";
 const ASSETS = [
   './',
   './index.html',
@@ -25,20 +25,40 @@ self.addEventListener('activate', (event) => {
   })());
 });
 
+
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  event.respondWith((async () => {
-    const cached = await caches.match(req, {ignoreSearch:true});
-    if (cached) return cached;
+  if(!req || req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if(url.origin !== location.origin) return; // same-origin only
+  event.respondWith((async ()=>{
+    const cache = await caches.open(CACHE_NAME);
+    // Exact match (includes ?v=)
+    const exact = await cache.match(req);
+    if(exact) return exact;
+
+    // Try without query (handles cache busting)
+    const noq = await cache.match(url.pathname);
+    if(noq) return noq;
+
     try {
-      const fresh = await fetch(req);
-      const cache = await caches.open(CACHE_NAME);
-      cache.put(req, fresh.clone()).catch(()=>{});
-      return fresh;
-    } catch (e) {
-      // fallback to app shell
-      const shell = await caches.match('./index.html');
-      return shell || new Response('Offline', {status: 503});
+      const net = await fetch(req);
+      // Cache successful responses
+      if(net && net.ok) {
+        cache.put(req, net.clone());
+        // also store queryless version for convenience
+        cache.put(url.pathname, net.clone()).catch(()=>{});
+      }
+      return net;
+    } catch(e) {
+      // Offline fallback: try cached index for navigation requests
+      if(req.mode === 'navigate') {
+        const cachedIndex = await cache.match('./') || await cache.match('/');
+        if(cachedIndex) return cachedIndex;
+      }
+      // last resort: return a simple offline response
+      return new Response('Offline', { status: 503, headers: { 'Content-Type':'text/plain' } });
     }
   })());
 });
