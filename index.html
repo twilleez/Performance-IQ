@@ -398,6 +398,10 @@ input, select, textarea{
     </div>
     <div class="right noPrint">
       <button id="btnStartToday" type="button" class="secondary" aria-label="Start today">Start Today</button>
+        <label class="pill" style="margin-left:8px;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border);border-radius:999px;cursor:pointer;">
+          <input id="toggleParentView" type="checkbox" style="accent-color: var(--brand);"/>
+          <span class="muted" style="font-size:12px">Parent view</span>
+        </label>
         <button id="themeToggle" type="button" class="secondary" aria-label="Toggle light/dark">☀️/🌙</button>
       <button id="btnInstall" class="hide" type="button">Install</button>
       <button id="btnPrint" type="button">Print workout card</button>
@@ -651,6 +655,15 @@ input, select, textarea{
       <div class="row">
         <div>
           <label for="equip">Equipment access</label>
+
+<label>
+  Position preset
+  <select id="positionPreset">
+    <option value="">Select a preset…</option>
+  </select>
+  <div class="muted" style="margin-top:6px">Applies recommended drills + microcycle emphasis for the selected sport/position.</div>
+</label>
+
           <select id="equip">
             <option value="gym" selected>Full gym</option>
             <option value="home">Home (DB/bands/pull-up bar)</option>
@@ -726,6 +739,7 @@ input, select, textarea{
   </div>
   <div class="actionBarRight">
     <button id="primaryProgramJump" type="button" class="secondary">Go to workout</button>
+    <button id="btnShareParents" type="button" class="secondary">Share to parents</button>
     <button id="primaryProgramGenerate" type="button">Generate / update</button>
   </div>
 </div>
@@ -857,6 +871,7 @@ input, select, textarea{
   <div class="actionBarRight">
     <button id="primaryProgressRefresh" type="button" class="secondary">Refresh</button>
     <button id="primaryProgressExport" type="button">Export weekly PDF</button>
+    <button id="btnShareReport" type="button" class="secondary">Share report</button>
   </div>
 
     <div class="card" id="weeklySummaryCard">
@@ -866,7 +881,7 @@ input, select, textarea{
         <div class="badge" id="wsSessions">Sessions: —</div>
         <div class="badge" id="wsCompletion">Checklist: —</div>
         <div class="badge" id="wsAttendance">Attendance: —</div>
-        <div class="badge" id="wsFocus">Focus hit: —</div>
+        <div class="badge" id="wsFocus" class="badge advancedOnly">Focus hit:<span class="infoIcon" tabindex="0" role="button" data-info="focusHit" class="advancedOnly" aria-label="What is Focus hit?">i</span> —</div>
       </div>
       <div class="muted" style="margin-top:10px" id="wsNote"></div>
     </div>
@@ -961,6 +976,19 @@ input, select, textarea{
   <div class="emptyStateBody"></div>
   <div class="emptyStateActions"></div>
 </div>
+
+    <div class="card" id="teamOverviewCard">
+      <h2>Team overview</h2>
+      <div class="muted" style="margin-bottom:10px">Fast snapshot for the last 7 days (offline).</div>
+      <div class="grid2">
+        <div class="badge" id="toRoster">Roster: —</div>
+        <div class="badge" id="toSessions">Team sessions: —</div>
+        <div class="badge" id="toCompletion">Checklist completions: —</div>
+        <div class="badge" id="toAttendance">Attendance: —</div>
+      </div>
+      <div class="muted" style="margin-top:10px" id="toNote"></div>
+    </div>
+
 
 
 
@@ -2574,7 +2602,7 @@ function exportWeeklyPDF(){
     const lines = [];
     lines.push("PerformanceIQ — Weekly Summary");
     lines.push(`${dateStr}  •  ${athleteName}  •  ${sport} (${level})`);
-    lines.push(`Primary focus: ${focus}`);
+    lines.push(`Primary focus:<span class="infoIcon" tabindex="0" role="button" data-info="primaryFocus" aria-label="What is Primary focus?">i</span> ${focus}`);
     lines.push(`Completion snapshot: ${pct}% (${done}/${total})`);
     lines.push("");
     // Collect cards
@@ -3047,6 +3075,226 @@ function updateWeeklySummaryUI(){
   }
 }
 
+
+// === v44: friction reduction pack (tooltips, team overview, one-tap sharing) ===
+function openInfo(title, body){
+  const back = document.getElementById("infoModalBackdrop");
+  const t = document.getElementById("infoModalTitle");
+  const b = document.getElementById("infoModalBody");
+  if(!back||!t||!b) return;
+  t.textContent = title || "Info";
+  b.innerHTML = body || "";
+  back.style.display = "flex";
+  document.getElementById("infoModalClose")?.focus();
+}
+function closeInfo(){
+  const back = document.getElementById("infoModalBackdrop");
+  if(back) back.style.display = "none";
+}
+function bindInfo(){
+  document.getElementById("infoModalClose")?.addEventListener("click", closeInfo);
+  document.getElementById("infoModalBackdrop")?.addEventListener("click", (e)=>{
+    if(e.target && e.target.id==="infoModalBackdrop") closeInfo();
+  });
+  const map = {
+    focusHit: {
+      title: "Focus hit %",
+      body: "A quick indicator of how often you trained your selected primary focus this week. "
+          + "This is a simple coaching target (example: aim for ~3 focus sessions/week)."
+    },
+    primaryFocus: {
+      title: "Primary vs secondary focus",
+      body: "Primary focus is the main goal you’re emphasizing right now (speed, jump, power). "
+          + "Secondary focus is optional — it adds a smaller dose without stealing recovery."
+    }
+  };
+  document.querySelectorAll("[data-info]").forEach(el=>{
+    const key = el.getAttribute("data-info");
+    const item = map[key];
+    if(!item) return;
+    const open = ()=>openInfo(item.title, item.body);
+    el.addEventListener("click", open);
+    el.addEventListener("keydown", (e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); open(); }});
+  });
+}
+
+function updateTeamOverviewUI(){
+  const roster = _loadJSON("piq_roster_v1", []);
+  const rosterSize = Array.isArray(roster) ? roster.length : 0;
+
+  const weekStart = _weekAgoISO();
+  const events = _loadJSON("piq_events_v1", []);
+  const last7 = events.filter(e=> (e.date||"") >= weekStart);
+  const checked = last7.filter(e=>e.checked===true);
+  const sessionDays = new Set(checked.map(e=>e.date));
+  const teamSessions = sessionDays.size;
+  const completions = checked.length;
+
+  const att = _loadJSON("piq_attendance_v1", {});
+  let attPresent=0, attTotal=0;
+  Object.keys(att||{}).forEach(d=>{
+    if(d >= weekStart){
+      const obj = att[d]||{};
+      const names = Object.keys(obj);
+      attPresent += names.filter(n=>obj[n]).length;
+      attTotal += names.length;
+    }
+  });
+  const attPct = attTotal ? Math.round((attPresent/attTotal)*100) : null;
+
+  const toRoster = document.getElementById("toRoster");
+  const toSessions = document.getElementById("toSessions");
+  const toCompletion = document.getElementById("toCompletion");
+  const toAttendance = document.getElementById("toAttendance");
+  const toNote = document.getElementById("toNote");
+  if(!toRoster||!toSessions||!toCompletion||!toAttendance) return;
+
+  toRoster.textContent = `Roster: ${rosterSize||"—"}`;
+  toSessions.textContent = `Team sessions: ${teamSessions}`;
+  toCompletion.textContent = `Checklist completions: ${completions}`;
+  toAttendance.textContent = (attPct==null) ? "Attendance: —" : `Attendance: ${attPct}%`;
+  if(toNote){
+    toNote.textContent = (events.length==0)
+      ? "Team overview starts tracking once athletes begin checking off items (timestamped)."
+      : "Team overview reflects the last 7 days of checklist activity and attendance (offline).";
+  }
+}
+
+function bindShareButtons(){
+  document.getElementById("btnShareParents")?.addEventListener("click", ()=>{
+    if(!validateBeforeRender()) return;
+    toast("Preparing a parent-friendly report…", 1100);
+    document.getElementById("btnGenerate")?.click();
+    setTimeout(()=>{ exportWeeklyPDF(); }, 250);
+  });
+  document.getElementById("btnShareReport")?.addEventListener("click", ()=>{
+    toast("Preparing report…", 900);
+    exportWeeklyPDF();
+  });
+}
+
+
+// === v45: demo mode + position presets + parent view (offline) ===
+function setParentView(on){
+  try{ localStorage.setItem("piq_parent_view_v1", on ? "1":"0"); }catch(e){}
+  document.documentElement.classList.toggle("parentView", !!on);
+}
+function initParentView(){
+  const on = (localStorage.getItem("piq_parent_view_v1")==="1");
+  const t = document.getElementById("toggleParentView");
+  if(t){ t.checked = on; t.addEventListener("change", ()=>setParentView(t.checked)); }
+  setParentView(on);
+}
+
+// Demo content (safe defaults)
+function enableDemoMode(){
+  // Sample roster (12 athletes)
+  const roster = [
+    {name:"A. Johnson", sport:"Basketball", level:"AAU", position:"PG"},
+    {name:"B. Smith", sport:"Basketball", level:"AAU", position:"SG"},
+    {name:"C. Davis", sport:"Basketball", level:"AAU", position:"SF"},
+    {name:"D. Brown", sport:"Basketball", level:"AAU", position:"PF"},
+    {name:"E. Wilson", sport:"Basketball", level:"AAU", position:"C"},
+    {name:"F. Miller", sport:"Football", level:"Youth", position:"WR"},
+    {name:"G. Moore", sport:"Football", level:"Youth", position:"RB"},
+    {name:"H. Taylor", sport:"Football", level:"Youth", position:"QB"},
+    {name:"I. Anderson", sport:"Volleyball", level:"Youth", position:"OH"},
+    {name:"J. Thomas", sport:"Volleyball", level:"Youth", position:"S"},
+    {name:"K. Jackson", sport:"Baseball", level:"Youth", position:"P"},
+    {name:"L. White", sport:"Baseball", level:"Youth", position:"SS"}
+  ];
+  _saveJSON("piq_roster_v1", roster);
+
+  // Populate athlete form with first athlete
+  if(document.getElementById("athleteName")) document.getElementById("athleteName").value = roster[0].name;
+  if(document.getElementById("sport")) document.getElementById("sport").value = roster[0].sport;
+  if(document.getElementById("level")) document.getElementById("level").value = roster[0].level;
+  if(document.getElementById("position")) document.getElementById("position").value = roster[0].position;
+
+  // Defaults that remove friction
+  if(document.getElementById("daysPerWeek")) document.getElementById("daysPerWeek").value = "4";
+  if(document.getElementById("focusPrimary")) document.getElementById("focusPrimary").value = "Get faster";
+
+  toast("Demo mode enabled. Sample roster loaded.", 1600);
+  render();
+  switchTab("athletes");
+}
+
+// Position preset library (microcycle emphasis + key drill themes)
+const POSITION_PRESETS = {
+  Basketball: {
+    PG: {label:"Point Guard (PG)", focusPrimary:"Get faster", notes:"Change of pace, decel/accel, lateral containment", tags:["speed","agility","deceleration"]},
+    SG: {label:"Shooting Guard (SG)", focusPrimary:"Explosive power", notes:"First step + vertical pop, shooting footwork", tags:["power","jump","speed"]},
+    SF: {label:"Small Forward (SF)", focusPrimary:"Explosive power", notes:"Two-way athleticism, contact balance", tags:["power","strength","agility"]},
+    PF: {label:"Power Forward (PF)", focusPrimary:"Explosive power", notes:"Rebounding pop, hip power, contact strength", tags:["power","strength","jump"]},
+    C:  {label:"Center (C)", focusPrimary:"Explosive power", notes:"Rim protection pop, trunk strength, ankle/hip mobility", tags:["jump","strength","power"]}
+  },
+  Football: {
+    QB: {label:"Quarterback (QB)", focusPrimary:"Explosive power", notes:"Rotational power, decel, shoulder care", tags:["power","mobility","throwing"]},
+    WR: {label:"Wide Receiver (WR)", focusPrimary:"Get faster", notes:"Acceleration, top speed, route change-of-direction", tags:["speed","agility","plyo"]},
+    RB: {label:"Running Back (RB)", focusPrimary:"Explosive power", notes:"Contact balance, hip power, short-area burst", tags:["power","strength","speed"]},
+    DB: {label:"Defensive Back (DB)", focusPrimary:"Get faster", notes:"Backpedal/turn, reactive COD, hamstring care", tags:["speed","agility","decel"]},
+    LB: {label:"Linebacker (LB)", focusPrimary:"Explosive power", notes:"Short-area power, trunk stiffness, tackling posture", tags:["power","strength","speed"]},
+    OL: {label:"Offensive Line (OL)", focusPrimary:"Explosive power", notes:"Posterior chain, trunk bracing, short punch power", tags:["strength","power","mobility"]},
+    DL: {label:"Defensive Line (DL)", focusPrimary:"Explosive power", notes:"First-step power, hip extension, grip/upper back", tags:["power","strength","speed"]}
+  },
+  Volleyball: {
+    S:  {label:"Setter (S)", focusPrimary:"Get faster", notes:"Reactive speed, shoulder care, decel mechanics", tags:["speed","agility","mobility"]},
+    OH: {label:"Outside Hitter (OH)", focusPrimary:"Jump higher", notes:"Approach jump, landing mechanics, tendon care", tags:["jump","plyo","strength"]},
+    MB: {label:"Middle Blocker (MB)", focusPrimary:"Jump higher", notes:"Block jump repeatability, ankle stiffness", tags:["jump","plyo","power"]},
+    L:  {label:"Libero (L)", focusPrimary:"Get faster", notes:"Lateral quickness, posture, reactive floor moves", tags:["speed","agility","decel"]},
+    OP: {label:"Opposite (OP)", focusPrimary:"Jump higher", notes:"Max vertical + shoulder robustness", tags:["jump","power","mobility"]}
+  },
+  Baseball: {
+    P:  {label:"Pitcher (P)", focusPrimary:"Explosive power", notes:"Rotational power + shoulder/elbow care", tags:["power","mobility","throwing"]},
+    C:  {label:"Catcher (C)", focusPrimary:"Explosive power", notes:"Hip mobility + short burst, knee-friendly strength", tags:["power","mobility","strength"]},
+    SS: {label:"Shortstop (SS)", focusPrimary:"Get faster", notes:"Reactive COD, first step, decel control", tags:["speed","agility","decel"]},
+    OF: {label:"Outfield (OF)", focusPrimary:"Get faster", notes:"Top speed + tracking, sprint mechanics", tags:["speed","acceleration","mobility"]},
+    1B: {label:"1st Base (1B)", focusPrimary:"Explosive power", notes:"Trunk strength, lateral reach, hip power", tags:["strength","power","mobility"]},
+    2B: {label:"2nd Base (2B)", focusPrimary:"Get faster", notes:"Reactive COD + quick transfer", tags:["speed","agility","power"]},
+    3B: {label:"3rd Base (3B)", focusPrimary:"Explosive power", notes:"Lateral burst + throw robustness", tags:["power","strength","mobility"]}
+  }
+};
+
+function refreshPositionPresets(){
+  const sport = (document.getElementById("sport")?.value||"").trim();
+  const sel = document.getElementById("positionPreset");
+  if(!sel) return;
+  sel.innerHTML = '<option value="">Select a preset…</option>';
+  const group = POSITION_PRESETS[sport];
+  if(!group) return;
+  Object.keys(group).forEach(k=>{
+    const o = document.createElement("option");
+    o.value = k;
+    o.textContent = group[k].label;
+    sel.appendChild(o);
+  });
+}
+
+function applyPreset(){
+  const sport = (document.getElementById("sport")?.value||"").trim();
+  const key = (document.getElementById("positionPreset")?.value||"").trim();
+  if(!sport || !key) return;
+  const preset = POSITION_PRESETS[sport]?.[key];
+  if(!preset) return;
+
+  // set position, primary focus
+  if(document.getElementById("position")) document.getElementById("position").value = key;
+  if(document.getElementById("focusPrimary")) document.getElementById("focusPrimary").value = preset.focusPrimary;
+
+  toast(`Applied preset: ${preset.label}`, 1400);
+  render();
+}
+
+function bindDemoAndPresets(){
+  document.getElementById("btnDemoMode")?.addEventListener("click", enableDemoMode);
+  document.getElementById("sport")?.addEventListener("change", ()=>{
+    refreshPositionPresets();
+  });
+  document.getElementById("positionPreset")?.addEventListener("change", applyPreset);
+  refreshPositionPresets();
+}
+
 function render(){
   const a=currentAthlete();
   applyUserMode(a.userMode);
@@ -3058,6 +3306,7 @@ function render(){
     $("calcNotes").textContent="Enter a valid height and weight (macros will be hidden).";
     updateEmptyStates();
   updateWeeklySummaryUI();
+  updateTeamOverviewUI();
 }
   if(validAnthro){
   const age=(a.age && a.age>0)?a.age:35;
@@ -4010,6 +4259,16 @@ input, select, textarea{
 
     </head><body>${bodyHtml}
 <button id="btnExportPDF" type="button" style="display:none"></button>
+
+<div class="modalBackdrop" id="infoModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="infoModalTitle">
+  <div class="modal" id="infoModal">
+    <h3 id="infoModalTitle">Info</h3>
+    <p id="infoModalBody"></p>
+    <div class="row">
+      <button type="button" class="secondary" id="infoModalClose">Close</button>
+    </div>
+  </div>
+</div>
 </body></html>`);
   w.document.close();
   setTimeout(()=>{ w.focus(); w.print(); }, 300);
