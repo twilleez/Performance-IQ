@@ -3562,6 +3562,11 @@ $("btnInstall").addEventListener("click", async ()=>{ if(!deferredPrompt) return
 
 if("serviceWorker" in navigator){ navigator.serviceWorker.register("./service-worker.js").catch(()=>{}); }
 
+// v45.1 init friction tools
+try{ initParentView(); }catch(e){}
+try{ bindDemoAndPresets(); }catch(e){}
+
+
 
 
 function validateCoreInputs(){
